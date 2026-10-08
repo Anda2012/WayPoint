@@ -65,7 +65,7 @@ ESP32-S3
 ├── Display controller / panel interface
 ├── GPS receiver (planned)
 ├── IMU / compass (planned)
-├── Offline map storage (planned)
+├── Offline map storage
 ├── Map rendering layer (planned)
 ├── Navigation logic (planned)
 └── User interface (planned)
