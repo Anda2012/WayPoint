@@ -10,9 +10,9 @@
 
 ## Overview
 
-WayPoint is an embedded navigation project intended for the ES3C35P QSPI st77922 based display board with a compact touch display and offline map capabilities. The repository currently contains the initial PlatformIO scaffold and a custom board definition for an ESP32-S3 development board with a 3.5 inch 320x480 display.
+WayPoint is an embedded navigation prototype for an ESP32-S3 board with a 320x480 ST77922 display. The current firmware initializes LVGL 8, mounts the microSD card over SD_MMC, and displays a fixed 3x3 grid of offline map tiles with a marker at a configured geographic coordinate.
 
-At this stage, the codebase is best understood as a foundation for a navigation system rather than a complete, finished product. The actual firmware in this repository is minimal and mostly consists of the default Arduino setup/loop structure, while the board configuration and project metadata describe the target hardware.
+The map center is currently a compile-time sample coordinate, not a live GPS fix. GPS acquisition, map panning, and route navigation are not implemented yet.
 
 ## Current repository state
 
@@ -20,29 +20,28 @@ This repository currently includes:
 
 - A PlatformIO project configured for ESP32-S3
 - A custom board definition for `FNK0104N_3P5_320x480_ST77922`
-- A minimal Arduino sketch in `src/main.cpp`
-- Build artifacts generated in `.pio/build/`
+- LVGL display and touch initialization
+- SD_MMC mounting using the configured SDIO pins
+- A fixed-grid offline map tile renderer using `map_tiles_lvgl8`
 
 The project is under active development and should be considered an early-stage prototype.
 
 ## Features
 
-The following are either clearly present or clearly implied by the repository state:
+Implemented in the current firmware:
 
 - ESP32-S3 PlatformIO project configuration
 - Custom board definition for a 320x480 display target
-- Arduino-based firmware skeleton
-- Embedded target metadata for a 16MB flash board variant
+- Arduino firmware using LVGL 8
+- SD_MMC-backed fixed 3x3 map tile display
+- A marker centered on the selected latitude/longitude
 
-The following are planned, but not implemented in the current repository:
+Not yet implemented:
 
 - GPS acquisition and parsing
-- Offline map rendering
-- Tile or vector map management
+- Dynamic map positioning, panning, and zoom controls
 - Navigation logic and routing
-- LVGL UI framework integration
 - IMU / compass support
-- Touch and user input handling
 
 ## Hardware
 
@@ -56,47 +55,43 @@ From that file, the project targets:
 - 3.5 inch display panel described as `320x480`
 - Board name: `FNK0104N 3.5in 320x480 ST77922 ESP32-S3-N16R8V`
 
-The project does not currently contain GPIO pin assignments, display driver code, GPS wiring, or IMU connectivity details in source files. Those will need to be added later when the hardware integration layer is implemented.
+The firmware configures the SD card as 4-bit SDIO. Display GPIO details are defined by the TFT_eSPI board setup and touch driver; GPS and IMU wiring are not implemented.
 
 ## Architecture
 
 ```text
 ESP32-S3
 ├── Display controller / panel interface
-├── GPS receiver (planned)
-├── IMU / compass (planned)
-├── Offline map storage (planned)
-├── Map rendering layer (planned)
-├── Navigation logic (planned)
-└── User interface (planned)
+├── 4-bit SD_MMC ── map_tiles_lvgl8 fixed tile grid
+├── ST77922 display ── TFT_eSPI flush callback
+├── Touch controller ── LVGL pointer input
+└── GPS / navigation / IMU (planned)
 ```
 
-This is a conceptual architecture based on the intended use case, not a claim that all of these modules are already implemented. The actual code in the repository is still a minimal Arduino skeleton.
+The current map position is a fixed sample coordinate; it is not yet connected to a GPS receiver.
 
 ## Software architecture
 
-The repository currently follows a simple embedded firmware layout typical of PlatformIO projects:
+The PlatformIO firmware combines:
 
 - `platformio.ini` configures the project target, framework, and board selection
 - `boards/FNK0104N_3P5_320x480_ST77922.json` defines the custom board metadata
-- `src/main.cpp` contains the initial firmware entry point
+- `src/main.cpp` contains display/touch setup, SD_MMC configuration, and the fixed-grid tile example
+- `map_tiles_lvgl8` provides LVGL 8 tile descriptors, coordinate conversion, and tile file loading
 
-There is no implemented navigation stack, no map engine, and no display abstraction code in the current source tree.
+The current renderer loads a 3x3 set of tiles around the configured coordinate and positions that point at the display center.
 
 ## Map system
 
-No actual map engine is present in the codebase at this time.
+The firmware uses the `map_tiles_*` fixed-grid API from `map_tiles_lvgl8`. It loads up to nine 256x256 RGB565 tiles from the microSD card and places an LVGL marker at the configured coordinate. The map view is fixed: live GPS updates, panning, zoom controls, and route rendering are not wired into this firmware.
 
-The following are not implemented in the repository as written:
+Tile files must be converted to the library's expected format (12-byte header followed by 256x256 RGB565 pixel data) and stored on the card using this layout:
 
-- Offline raster maps
-- Vector tile rendering
-- Map caching
-- Geographic coordinate transforms
-- Route rendering
-- Navigation overlays
+```text
+/tiles/<zoom>/<x>/<y>.bin
+```
 
-Because of that, any map-system claims beyond the project concept should be treated as planned work rather than completed functionality.
+The firmware defaults to zoom 16 and the center of the provided BKK–DMK area, `13.79152, 100.63236`. Update `MAP_LATITUDE` and `MAP_LONGITUDE` in `src/main.cpp` to change the map center. The 3x3 tile buffers require PSRAM.
 
 ## Installation
 
@@ -148,17 +143,28 @@ Current configuration:
 platform = espressif32
 board = FNK0104N_3P5_320x480_ST77922
 framework = arduino
+lib_deps =
+    lvgl/lvgl@^8.3.11
+    https://github.com/Anda2012/map_tiles_lvgl8_arduino.git
+    TFT_eSPI
 ```
 
-The custom board is defined in `boards/FNK0104N_3P5_320x480_ST77922.json` and sets the target MCU and flash configuration for the board variant.
-
-No application-level config file, map configuration, or GPS settings are present in the repository at this time.
+The tile grid, zoom level, storage folder, and sample center coordinate are configured by the `MAP_GRID`, `MAP_ZOOM`, `TILE_FOLDER`, `MAP_LATITUDE`, and `MAP_LONGITUDE` constants in `src/main.cpp`. The tile base path is empty because the library is connected directly to `SD_MMC` with `map_tiles_use_arduino_fs`.
 
 ## Hardware wiring
 
-No pin assignments or wiring schema are currently defined in the repository. The custom board JSON provides board metadata, but it does not specify GPIO mapping for GPS, display, touch, or other peripherals.
+The SD_MMC pins are configured in `src/main.cpp`:
 
-A future hardware section will include a pinout table once those definitions are added to the project.
+| SDIO signal | GPIO |
+| --- | ---: |
+| CLK | 5 |
+| CMD | 4 |
+| D0 | 6 |
+| D1 | 7 |
+| D2 | 2 |
+| D3 | 3 |
+
+Display and touch pins are configured by the TFT_eSPI setup and ST77922 touch driver. GPS and IMU wiring is not yet defined.
 
 ## Project structure
 
@@ -167,18 +173,15 @@ A future hardware section will include a pinout table once those definitions are
 ├── boards/
 │   └── FNK0104N_3P5_320x480_ST77922.json
 ├── include/
-│   └── README
 ├── lib/
-│   └── README
+│   ├── TFT_eSPI/
+│   └── lvgl/
 ├── src/
 │   └── main.cpp
-├── test/
-│   └── README
 ├── .gitignore
-├── .pio/
 ├── platformio.ini
 ├── README.md
-└── README
+└── LICENSE
 ```
 
 ## Development status
@@ -189,13 +192,14 @@ A future hardware section will include a pinout table once those definitions are
 | Custom board config | Completed |
 | ESP32-S3 target selection | Completed |
 | Arduino firmware skeleton | Completed |
-| Display integration | Not yet implemented |
+| Display integration | Implemented with TFT_eSPI |
+| Touch input | Initialized as an LVGL pointer |
+| SD_MMC tile loading | Implemented |
+| Fixed 3x3 map tile display | Implemented; needs matching tile files |
 | GPS receiver support | Planned |
 | IMU / compass support | Planned |
-| Offline map rendering | Planned |
 | Navigation logic | Planned |
-| LVGL UI | Planned |
-| Touch input | Planned |
+| Live map movement and zoom | Planned |
 
 ## Roadmap
 
@@ -203,22 +207,20 @@ A future hardware section will include a pinout table once those definitions are
 
 - Confirmed PlatformIO structure for an ESP32-S3 target
 - Added custom board metadata for the display board
-- Created a minimal Arduino firmware entry point
+- Initialized the TFT_eSPI display and LVGL 8
+- Added SD_MMC loading for the fixed 3x3 map tile grid
 
 ### In Progress
 
-- Defining the actual project direction and hardware interfaces
-- Establishing the long-term software structure for navigation and UI layers
+- Validate the fixed-grid renderer with the project's prepared SD tile set and hardware
 
 ### Planned
 
 - GPS receiver integration
-- Offline map data pipeline
-- Display driver setup and screen drawing
-- Touch handling
-- Map navigation and route rendering
+- Live map positioning, panning, and zoom
+- Route rendering and navigation
 - IMU / compass support
-- UI polish and device behavior refinement
+- UI refinement and device behavior testing
 
 ## Screenshots
 
